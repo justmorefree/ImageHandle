@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { fabric } from "fabric-with-erasing";
-import { markRaw, onMounted, ref, watchEffect } from "vue";
+import { markRaw, onMounted, ref, watchEffect, watch } from "vue";
 
-const fabricCanvasRef = ref<fabric.Canvas | null>(null);
+let fabricCanvas: fabric.Canvas | null = null;
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 
 
@@ -15,21 +15,17 @@ const canRedoRef = ref<boolean>(false);
 const stateIndexRef = ref<number>(-1);
 const currentGroupRef = ref<fabric.Group | null>(null);
 
-// 是否在绘制模式
-const isDrawingModeRef = ref<boolean>(false);
-// 是否在可绘制区域
-const isInDrawingAreaRef = ref<boolean>(true);
 
 const handleFileChange = (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0];
-  if (!file || !fabricCanvasRef.value) return;
+  if (!file || !fabricCanvas) return;
   const reader = new FileReader();
   reader.onload = (e) => {
     const imgUrl = e.target?.result as string;
     fabric.Image.fromURL(imgUrl, (img: any) => {
       // 设置图片大小适应画布
-      const canvasWidth = fabricCanvasRef.value!.width!;
-      const canvasHeight = fabricCanvasRef.value!.height!;
+      const canvasWidth = fabricCanvas.width!;
+      const canvasHeight = fabricCanvas.height!;
       const scale = Math.min(
         canvasWidth / img.width!,
         canvasHeight / img.height!
@@ -76,9 +72,9 @@ const handleFileChange = (event: Event) => {
 
 
       const group = new fabric.Group([img]);
-      fabricCanvasRef.value!.add(markRaw(group));
+      fabricCanvas.add(markRaw(group));
       currentGroupRef.value = group;
-      fabricCanvasRef.value!.setActiveObject(group);
+      fabricCanvas.setActiveObject(group);
 
 
       isLoadedImgRef.value = true;
@@ -109,26 +105,26 @@ const handleFileChange = (event: Event) => {
 onMounted(() => init());
 
 const handleMouseUp = () => {
-  fabricCanvasRef.value.setViewportTransform(fabricCanvasRef.value.viewportTransform) // 设置此画布实例的视口转换  
-  fabricCanvasRef.value.isDragging = false
+  fabricCanvas.setViewportTransform(fabricCanvas.viewportTransform) // 设置此画布实例的视口转换  
+  fabricCanvas.isDragging = false
 }
 
 const handleMouseDown = (opt: any) => {
   let evt = opt.e
-  fabricCanvasRef.value.isDragging = true // isDragging 是自定义的
-  fabricCanvasRef.value.lastPosX = evt.clientX // lastPosX 是自定义的
-  fabricCanvasRef.value.lastPosY = evt.clientY // lastPosY 是自定义的
+  fabricCanvas.isDragging = true // isDragging 是自定义的
+  fabricCanvas.lastPosX = evt.clientX // lastPosX 是自定义的
+  fabricCanvas.lastPosY = evt.clientY // lastPosY 是自定义的
 }
 
 const handleMouseMove = (opt: any) => {
-  if (fabricCanvasRef.value.isDragging) {
+  if (fabricCanvas.isDragging) {
     let evt = opt.e
-    let vpt = fabricCanvasRef.value.viewportTransform // 聚焦视图的转换
-    vpt[4] += evt.clientX - fabricCanvasRef.value.lastPosX
-    vpt[5] += evt.clientY - fabricCanvasRef.value.lastPosY
-    fabricCanvasRef.value.requestRenderAll()
-    fabricCanvasRef.value.lastPosX = evt.clientX
-    fabricCanvasRef.value.lastPosY = evt.clientY
+    let vpt = fabricCanvas.viewportTransform // 聚焦视图的转换
+    vpt[4] += evt.clientX - fabricCanvas.lastPosX
+    vpt[5] += evt.clientY - fabricCanvas.lastPosY
+    fabricCanvas.requestRenderAll()
+    fabricCanvas.lastPosX = evt.clientX
+    fabricCanvas.lastPosY = evt.clientY
   }
 }
 
@@ -139,7 +135,7 @@ const init = () => {
   scaleEventListener();
 
   // 保存状态
-  fabricCanvasRef.value.on("mouse:up", () => {
+  fabricCanvas.on("mouse:up", () => {
     saveState();
   });
 
@@ -149,13 +145,13 @@ const init = () => {
 
 
   // 监听绘制线，绘制好后添加到组，以使拖动组时图片和线一起移动
-  fabricCanvasRef.value.on('path:created', function (e: any) {
+  fabricCanvas.on('path:created', function (e: any) {
     const path = e.path;
     if (currentGroupRef.value) {
       // 将新创建的路径添加到组中
-      fabricCanvasRef.value.remove(path);
+      fabricCanvas.remove(path);
       currentGroupRef.value.addWithUpdate(path);
-      fabricCanvasRef.value.renderAll();
+      fabricCanvas.renderAll();
     }
     // if (path.globalCompositeOperation === 'destination-out') {
     //   console.log('这是橡皮擦操作');
@@ -248,7 +244,7 @@ const init = () => {
 
 const initFabricCanvas = () => {
   if (!canvasRef.value) return;
-  fabricCanvasRef.value = new fabric.Canvas(canvasRef.value, {
+  fabricCanvas = new fabric.Canvas(canvasRef.value, {
     width: canvasRef.value.width,
     height: canvasRef.value.height,
     isDrawingMode: false,
@@ -261,7 +257,7 @@ const initFabricCanvas = () => {
 
 const scaleEventListener = () => {
   // 设置对象缩放时，保持对象的宽高比
-  fabricCanvasRef.value.on("object:scaling", (opt: any) => {
+  fabricCanvas.on("object:scaling", (opt: any) => {
     const target = opt.target;
     const transform = opt.transform;
     if (target && target.set) {
@@ -284,13 +280,13 @@ const scaleEventListener = () => {
           scaleY: scale
         });
       }
-      fabricCanvasRef.value?.requestRenderAll();
+      fabricCanvas.requestRenderAll();
     }
   });
 }
 
 const isInGroup = (e: Event) => {
-  const pointer = fabricCanvasRef.value.getPointer(e);
+  const pointer = fabricCanvas.getPointer(e);
   const groupBounds = currentGroupRef.value.getBoundingRect();
   return pointer.x >= groupBounds.left &&
     pointer.x <= groupBounds.left + groupBounds.width &&
@@ -315,24 +311,24 @@ const setFabricControlsStyle = () => {
 
 //注册鼠标事件
 const fabricRegisterMouseEvents = () => {
-  if (fabricCanvasRef.value) {
-    fabricCanvasRef.value.on('mouse:down', handleMouseDown)
-    fabricCanvasRef.value.on('mouse:move', handleMouseMove)
-    fabricCanvasRef.value.on('mouse:up', handleMouseUp)
+  if (fabricCanvas) {
+    fabricCanvas.on('mouse:down', handleMouseDown)
+    fabricCanvas.on('mouse:move', handleMouseMove)
+    fabricCanvas.on('mouse:up', handleMouseUp)
   }
 };
 
 //取消注册鼠标事件
 const fabricUnregisterMouseEvents = () => {
-  if (fabricCanvasRef.value) {
-    fabricCanvasRef.value.off('mouse:down', handleMouseDown)
-    fabricCanvasRef.value.off('mouse:move', handleMouseMove)
-    fabricCanvasRef.value.off('mouse:up', handleMouseUp)
+  if (fabricCanvas) {
+    fabricCanvas.off('mouse:down', handleMouseDown)
+    fabricCanvas.off('mouse:move', handleMouseMove)
+    fabricCanvas.off('mouse:up', handleMouseUp)
   }
 };
 
 const customCursorStyle = () => {
-  fabricCanvasRef.value.hoverCursor = 'none'
+  fabricCanvas.hoverCursor = 'none'
   const customCursor = document.createElement('div');
   customCursor.style.width = '50px';
   customCursor.style.height = '50px';
@@ -344,14 +340,13 @@ const customCursorStyle = () => {
   customCursor.style.display = 'none';
 
   // 设置自定义鼠标样式
-  fabricCanvasRef.value.upperCanvasEl.style.cursor = 'none';
-  fabricCanvasRef.value.wrapperEl.appendChild(customCursor);
+  fabricCanvas.upperCanvasEl.style.cursor = 'none';
+  fabricCanvas.wrapperEl.appendChild(customCursor);
 
 }
 
-
 const saveState = () => {
-  stateStack.value.push(JSON.stringify(fabricCanvasRef.value.toDatalessJSON()));
+  stateStack.value.push(JSON.stringify(fabricCanvas.toDatalessJSON()));
   stateIndexRef.value = stateStack.value.length - 1;
 
 }
@@ -363,14 +358,15 @@ const openBrush = () => {
 }
 
 const setPencilBrush = () => {
-  if (!fabricCanvasRef.value) return;
-  const pencilBrush = new fabric.PencilBrush(fabricCanvasRef.value);
+  if (!fabricCanvas) return;
+  console.log("open pencilBrush");
+  const pencilBrush = new fabric.PencilBrush(fabricCanvas);
   pencilBrush.color = "#000";
   pencilBrush.width = 20;
-  fabricCanvasRef.value.freeDrawingBrush = pencilBrush;
-  isDrawingModeRef.value = true;
+  fabricCanvas.freeDrawingBrush = pencilBrush;
+  fabricCanvas.isDrawingMode = true;
   currentGroupRef.value.selectable = false;
-  fabricCanvasRef.value.requestRenderAll()
+  fabricCanvas.requestRenderAll()
 }
 
 // 开启橡皮擦功能
@@ -380,44 +376,35 @@ const openEraser = () => {
 }
 
 const setEraserBrush = () => {
-  if (!fabricCanvasRef.value) return;
-  const eraserBrush = new fabric.EraserBrush(fabricCanvasRef.value);
+  if (!fabricCanvas) return;
+  const eraserBrush = new fabric.EraserBrush(fabricCanvas);
   eraserBrush.width = 20;
   eraserBrush.color = "red";
-  fabricCanvasRef.value.freeDrawingBrush = eraserBrush;
-  isDrawingModeRef.value = true;
+  fabricCanvas.freeDrawingBrush = eraserBrush;
+  fabricCanvas.isDrawingMode = true;
   currentGroupRef.value.selectable = false;
-  fabricCanvasRef.value.requestRenderAll()
+  fabricCanvas.requestRenderAll()
 }
 
 // 打散分组
 const splitGroup = () => {
-  fabricCanvasRef.value.setActiveObject(currentGroupRef.value);
-  fabricCanvasRef.value.getActiveObject().toActiveSelection()
-  fabricCanvasRef.value.discardActiveObject();
+  fabricCanvas.setActiveObject(currentGroupRef.value);
+  fabricCanvas.getActiveObject().toActiveSelection()
+  fabricCanvas.discardActiveObject();
 }
 
 // 重新生成组
 const regenerateGroup = () => {
-  if (fabricCanvasRef.value.getObjects()[0].type !== 'group') {
-    console.log("重新生成组》》》》")
-    const selection = new fabric.ActiveSelection(fabricCanvasRef.value.getObjects(), {
-      canvas: fabricCanvasRef.value
+  if (fabricCanvas.getObjects()[0].type !== 'group') {
+    const selection = new fabric.ActiveSelection(fabricCanvas.getObjects(), {
+      canvas: fabricCanvas
     });
     const group = selection.toGroup();
     currentGroupRef.value = group;
-    fabricCanvasRef.value.discardActiveObject();
-    fabricCanvasRef.value.requestRenderAll();
+    fabricCanvas.discardActiveObject();
+    fabricCanvas.requestRenderAll();
   }
 }
-
-
-// // 删除组内的图片
-// const group = fabricCanvasRef.value.getObjects()[0] as fabric.Group;
-// console.log("zsl11",group);
-// const img = group.getObjects().find((obj: any) => obj.type === 'image');
-// console.log("zsl22",img);
-// group.removeWithUpdate(img);
 
 
 // 判断是否可以撤销和前进
@@ -426,18 +413,11 @@ watchEffect(() => {
   canRedoRef.value = stateIndexRef.value < stateStack.value.length - 1;
 })
 
-// 判断当前是否是可绘制模式
-watchEffect(() => {
-  if (!fabricCanvasRef.value) return;
-  fabricCanvasRef.value.isDrawingMode = isDrawingModeRef.value && isInDrawingAreaRef.value;
-})
-
-
 // 撤销或者前进到指定画布状态
 const historyStack = (index: number) => {
   if (canUndoRef.value || canRedoRef.value) {
-    fabricCanvasRef.value.loadFromJSON(stateStack.value[index], () => {
-      fabricCanvasRef.value.renderAll();
+    fabricCanvas.loadFromJSON(stateStack.value[index], () => {
+      fabricCanvas.renderAll();
       stateIndexRef.value = index;
     });
   }
@@ -445,20 +425,18 @@ const historyStack = (index: number) => {
 
 // 清除画布
 const clearCanvas = () => {
-  if (!fabricCanvasRef.value) return;
-  fabricCanvasRef.value.clear();
+  if (!fabricCanvas) return;
+  fabricCanvas.clear();
   isLoadedImgRef.value = false;
 }
 
 // 退出编辑模式
 const exitEditMode = () => {
-  if (!fabricCanvasRef.value) return;
+  if (!fabricCanvas) return;
   regenerateGroup();
-  isDrawingModeRef.value = false;
+  fabricCanvas.isDrawingMode = false;
   currentGroupRef.value.selectable = true;
 }
-
-
 
 
 
