@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import { fabric } from "fabric-with-erasing";
-import { markRaw, onMounted, ref, watchEffect, watch } from "vue";
+import { markRaw, onMounted, ref, watchEffect, watch, reactive } from "vue";
+import { getBase64SVG, getSvgEncode } from "../util";
+// import { mosaicBrush } from "./MaSaiKe";
+
+
+
+export interface CustomCursor {
+  size: number;
+  color: string;
+  cursor: string;
+}
 
 let fabricCanvas: fabric.Canvas | null = null;
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -13,7 +23,26 @@ const stateStack = ref<string[]>([]);
 const canUndoRef = ref<boolean>(false);
 const canRedoRef = ref<boolean>(false);
 const stateIndexRef = ref<number>(-1);
-const currentGroupRef = ref<fabric.Group | null>(null);
+let currentGroup: fabric.Group | null = null;
+
+const isDrawingModeRef = ref<boolean>(false);
+const isInDrawingAreaRef = ref<boolean>(false);
+
+
+// 自定义笔刷和橡皮擦的光标样式
+const customBrushCursor: CustomCursor = reactive({
+  size: 20,
+  color: "red",
+  cursor: "",
+})
+
+const customEraserCursor: CustomCursor = reactive({
+  size: 20,
+  color: "#c6c6c6",
+  cursor: "",
+})
+
+
 
 
 const handleFileChange = (event: Event) => {
@@ -26,10 +55,7 @@ const handleFileChange = (event: Event) => {
       // 设置图片大小适应画布
       const canvasWidth = fabricCanvas.width!;
       const canvasHeight = fabricCanvas.height!;
-      const scale = Math.min(
-        canvasWidth / img.width!,
-        canvasHeight / img.height!
-      );
+      const scale = Math.min(canvasWidth / img.width!, canvasHeight / img.height!);
 
       img.scale(scale);
 
@@ -40,46 +66,13 @@ const handleFileChange = (event: Event) => {
         erasable: false
       });
 
-
-
-
-      // fabricCanvasRef.value.on("mouse:down", (opt: any) => {
-      //   const pointer = fabricCanvasRef.value.getPointer(opt.e);
-      //   // 获取图片的边界
-      //   const imageBounds = img.getBoundingRect();
-
-      //   // 检查鼠标位置是否在图片区域内
-      //   if (pointer.x >= imageBounds.left && pointer.x <= imageBounds.left + imageBounds.width &&
-      //     pointer.y >= imageBounds.top && pointer.y <= imageBounds.top + imageBounds.height) {
-      //     // 允许绘制
-      //     fabricCanvasRef.value.isDrawingMode = true;
-      //   } else {
-      //     // 不在图片区域内，阻止绘制
-      //     fabricCanvasRef.value.isDrawingMode = false;
-      //   }
-      // });
-
-      // 设置为背景并禁止交互
-      // fabricCanvasRef.value!.setBackgroundImage(
-      //   img,
-      //   fabricCanvasRef.value!.renderAll.bind(fabricCanvasRef.value),
-      //   {
-      //     selectable: false,
-      //     erasable: false,
-      //   }
-      // );
-
-
-
       const group = new fabric.Group([img]);
       fabricCanvas.add(markRaw(group));
-      currentGroupRef.value = group;
+      currentGroup = group;
       fabricCanvas.setActiveObject(group);
-
 
       isLoadedImgRef.value = true;
       fileInputRef.value!.value = "";
-
 
       // fabricCanvasRef.value.on('object:moving', function (e) {
       //   const target = e.target;
@@ -131,6 +124,7 @@ const handleMouseMove = (opt: any) => {
 
 const init = () => {
   initFabricCanvas()
+  initCursorStyle()
   setFabricControlsStyle();
   scaleEventListener();
 
@@ -141,16 +135,14 @@ const init = () => {
 
 
 
-
-
-
   // 监听绘制线，绘制好后添加到组，以使拖动组时图片和线一起移动
   fabricCanvas.on('path:created', function (e: any) {
     const path = e.path;
-    if (currentGroupRef.value) {
+    console.log("path:created");
+    if (currentGroup) {
       // 将新创建的路径添加到组中
       fabricCanvas.remove(path);
-      currentGroupRef.value.addWithUpdate(path);
+      currentGroup.addWithUpdate(path);
       fabricCanvas.renderAll();
     }
     // if (path.globalCompositeOperation === 'destination-out') {
@@ -159,6 +151,9 @@ const init = () => {
     // else {
     // }
   });
+
+
+
 
 
 
@@ -197,20 +192,21 @@ const init = () => {
 
 
 
-  // // 监听鼠标移动，判断是否在可绘制区域
-  // fabricCanvasRef.value.on('mouse:move', function (e: Event) {
-  //   if (!currentGroupRef.value) return;
-  //   // 只在图片范围内启用绘制
-  //   isInDrawingAreaRef.value = isInGroup(e);
-  // });
+  // 监听鼠标移动，判断是否在可绘制区域
+  fabricCanvas.on('mouse:move', function (e: fabric.IEvent) {
+    if (!isLoadedImgRef.value) return
+    isInDrawingAreaRef.value = isInGroup(e);
+  });
 
-  // fabricCanvasRef.value.on('mouse:down', function (e: Event) {
-  //   isInDrawingAreaRef.value = isInGroup(e);
-  // });
+  fabricCanvas.on('mouse:down', function (e: fabric.IEvent) {
+    if (!isLoadedImgRef.value) return
+    isInDrawingAreaRef.value = isInGroup(e);
+  });
 
-  // fabricCanvasRef.value.on('mouse:up', function (e: Event) {
-  //   isInDrawingAreaRef.value = false;
-  // });
+  fabricCanvas.on('mouse:up', function (e: fabric.IEvent) {
+    if (!isLoadedImgRef.value) return
+    isInDrawingAreaRef.value = isInGroup(e);
+  });
 
 
 
@@ -254,10 +250,18 @@ const initFabricCanvas = () => {
   });
 }
 
+const initCursorStyle = () => {
+  customBrushCursor.cursor = getSvgEncode(customBrushCursor)
+  customEraserCursor.cursor = getSvgEncode(customEraserCursor)
+}
+
+
+
 
 const scaleEventListener = () => {
   // 设置对象缩放时，保持对象的宽高比
   fabricCanvas.on("object:scaling", (opt: any) => {
+    console.log("object:scaling");
     const target = opt.target;
     const transform = opt.transform;
     if (target && target.set) {
@@ -285,9 +289,10 @@ const scaleEventListener = () => {
   });
 }
 
-const isInGroup = (e: Event) => {
+const isInGroup = (e: fabric.IEvent) => {
+  if (!currentGroup) return false;
   const pointer = fabricCanvas.getPointer(e);
-  const groupBounds = currentGroupRef.value.getBoundingRect();
+  const groupBounds = currentGroup.getBoundingRect();
   return pointer.x >= groupBounds.left &&
     pointer.x <= groupBounds.left + groupBounds.width &&
     pointer.y >= groupBounds.top &&
@@ -359,15 +364,28 @@ const openBrush = () => {
 
 const setPencilBrush = () => {
   if (!fabricCanvas) return;
-  console.log("open pencilBrush");
+  fabricCanvas.freeDrawingCursor = getBase64SVG(customBrushCursor)
   const pencilBrush = new fabric.PencilBrush(fabricCanvas);
-  pencilBrush.color = "#000";
-  pencilBrush.width = 20;
+  pencilBrush.width = customBrushCursor.size;
+  pencilBrush.color = customBrushCursor.color;
   fabricCanvas.freeDrawingBrush = pencilBrush;
-  fabricCanvas.isDrawingMode = true;
-  currentGroupRef.value.selectable = false;
-  fabricCanvas.requestRenderAll()
+  isDrawingModeRef.value = true;
+  currentGroup.selectable = false;
+  fabricCanvas.renderAll()
+
+
+  // 马赛克笔刷
+  // const brush = mosaicBrush(fabricCanvas);
+  // // 这里不能少，否则画出来的内容不会生效，会被其他内容覆盖
+  // brush.source = brush.getPatternSrc.call(brush);
+  // fabricCanvas.freeDrawingBrush = brush;
+  // fabricCanvas.freeDrawingBrush.width = 20;
+  // isDrawingModeRef.value = true;
+  // currentGroup.selectable = false;
+  // fabricCanvas.requestRenderAll()
 }
+
+
 
 // 开启橡皮擦功能
 const openEraser = () => {
@@ -377,18 +395,19 @@ const openEraser = () => {
 
 const setEraserBrush = () => {
   if (!fabricCanvas) return;
+  fabricCanvas.freeDrawingCursor = getBase64SVG(customEraserCursor)
   const eraserBrush = new fabric.EraserBrush(fabricCanvas);
-  eraserBrush.width = 20;
-  eraserBrush.color = "red";
+  eraserBrush.width = customEraserCursor.size;
+  eraserBrush.color = customEraserCursor.color;
   fabricCanvas.freeDrawingBrush = eraserBrush;
-  fabricCanvas.isDrawingMode = true;
-  currentGroupRef.value.selectable = false;
+  isDrawingModeRef.value = true;
+  currentGroup.selectable = false;
   fabricCanvas.requestRenderAll()
 }
 
 // 打散分组
 const splitGroup = () => {
-  fabricCanvas.setActiveObject(currentGroupRef.value);
+  fabricCanvas.setActiveObject(currentGroup);
   fabricCanvas.getActiveObject().toActiveSelection()
   fabricCanvas.discardActiveObject();
 }
@@ -396,11 +415,15 @@ const splitGroup = () => {
 // 重新生成组
 const regenerateGroup = () => {
   if (fabricCanvas.getObjects()[0].type !== 'group') {
+    // currentGroup.off('object:scaling');
+    // currentGroup.off('object:scaled');
+    // currentGroup.off('object:moving');
+
     const selection = new fabric.ActiveSelection(fabricCanvas.getObjects(), {
       canvas: fabricCanvas
     });
     const group = selection.toGroup();
-    currentGroupRef.value = group;
+    currentGroup = group;
     fabricCanvas.discardActiveObject();
     fabricCanvas.requestRenderAll();
   }
@@ -411,6 +434,25 @@ const regenerateGroup = () => {
 watchEffect(() => {
   canUndoRef.value = stateIndexRef.value > 0;
   canRedoRef.value = stateIndexRef.value < stateStack.value.length - 1;
+})
+
+watch([isInDrawingAreaRef, isDrawingModeRef, () => fabricCanvas], ([isInDrawingArea, isDrawingMode, fabricCanvas]) => {
+
+  if (fabricCanvas) {
+
+    const canDraw = isDrawingMode;
+
+    if (isDrawingMode && !isInDrawingArea) {
+      // const points = fabricCanvas.freeDrawingBrush?.decimatePoints();
+      // if (points && points.length > 0) {
+      //   fabricCanvas.freeDrawingBrush.createPath(points);
+      // }
+
+    }
+    fabricCanvas.isDrawingMode = canDraw;
+    // fabricCanvas.requestRenderAll();
+
+  }
 })
 
 // 撤销或者前进到指定画布状态
@@ -434,8 +476,8 @@ const clearCanvas = () => {
 const exitEditMode = () => {
   if (!fabricCanvas) return;
   regenerateGroup();
-  fabricCanvas.isDrawingMode = false;
-  currentGroupRef.value.selectable = true;
+  isDrawingModeRef.value = false;
+  currentGroup.selectable = true;
 }
 
 

@@ -14,12 +14,15 @@
 // a.click();
 // document.body.removeChild(a);
 
+
 import DrawCanvas from './components/DrawCanvas.vue'
 import FabricCanvas from './components/FabricCanvas.vue'
+// import Demo from './components/Demo.vue'
 </script>
 
 <template>
   <FabricCanvas />
+  <!-- <Demo /> -->
 </template>
 
 <style scoped></style>
