@@ -1,4 +1,5 @@
 import { CustomCursor } from "./components/FabricCanvas.vue";
+import { fabric } from "fabric-with-erasing";
 
 export const getSvgEncode = (obj: CustomCursor) => {
   return encodeURIComponent(`
@@ -24,3 +25,7 @@ export const getBase64SVG = (obj: CustomCursor) => {
     obj.size / 2
   } ${obj.size / 2}, crosshair`;
 };
+
+export const isPencilBrush = (path: fabric.Path) => {
+  return path.globalCompositeOperation !== 'destination-out';
+}

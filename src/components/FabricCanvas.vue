@@ -1,7 +1,24 @@
+<template>
+  <div class="sss"></div>
+  <input type="file" @change="handleFileChange" ref="fileInputRef" />
+  <button @click="openBrush" :disabled="!isLoadedImgRef">局部重绘</button>
+  <button @click="openEraser" :disabled="!isLoadedImgRef">橡皮擦</button>
+  <button @click="exitEditMode">退出编辑模式</button>
+
+  <div class="canvasWrapper">
+    <button @click="historyStack(stateIndexRef + 1)" class="btnForward" :disabled="!canRedoRef">前进</button>
+    <button @click="historyStack(stateIndexRef - 1)" class="btnBack" :disabled="!canUndoRef">后退</button>
+    <button @click="clearCanvas" class="btnClear" :disabled="!isLoadedImgRef || !isCanClearRef">清除</button>
+    <canvas ref="canvasRef" width="800" height="600" class="canvas"></canvas>
+  </div>
+
+</template>
+
+
 <script setup lang="ts">
 import { fabric } from "fabric-with-erasing";
 import { markRaw, onMounted, ref, watchEffect, watch, reactive } from "vue";
-import { getBase64SVG, getSvgEncode } from "../util";
+import { getBase64SVG, getSvgEncode, isPencilBrush } from "../util";
 // import { mosaicBrush } from "./MaSaiKe";
 
 
@@ -27,6 +44,7 @@ let currentGroup: fabric.Group | null = null;
 
 const isDrawingModeRef = ref<boolean>(false);
 const isInDrawingAreaRef = ref<boolean>(false);
+const isCanClearRef = ref<boolean>(false);
 
 
 // 自定义笔刷和橡皮擦的光标样式
@@ -46,6 +64,7 @@ const customEraserCursor: CustomCursor = reactive({
 
 
 const handleFileChange = (event: Event) => {
+  isLoadedImgRef.value = false
   const file = (event.target as HTMLInputElement).files?.[0];
   if (!file || !fabricCanvas) return;
   const reader = new FileReader();
@@ -136,61 +155,29 @@ const init = () => {
 
 
   // 监听绘制线，绘制好后添加到组，以使拖动组时图片和线一起移动
-  fabricCanvas.on('path:created', function (e: any) {
+  fabricCanvas.on('path:created', function (e: fabric.IEvent) {
     const path = e.path;
-    console.log("path:created");
-    if (currentGroup) {
-      // 将新创建的路径添加到组中
-      fabricCanvas.remove(path);
-      currentGroup.addWithUpdate(path);
-      fabricCanvas.renderAll();
+    fabricCanvas.remove(path);
+    currentGroup.addWithUpdate(path);
+    fabricCanvas.renderAll();
+
+    if (isPencilBrush(path)) {
+      // 笔刷path
+      isCanClearRef.value = true;
+    } else {
+      console.log("橡皮擦path");
+      // 橡皮擦path
+      // 橡皮擦模式下一定是分组的，每次橡皮擦path更新后，都要检查此时画布是否还有PencilBrush Path,如果没有得Disable清除按钮
+      const findPencilBrush = fabricCanvas.getObjects().find((obj: fabric.Object) => isPencilBrush(obj as fabric.Path));
+      if (!findPencilBrush) {
+        isCanClearRef.value = false;
+      }
     }
-    // if (path.globalCompositeOperation === 'destination-out') {
-    //   console.log('这是橡皮擦操作');
-    // }
-    // else {
-    // }
+
+    fabricCanvas.getObjects().forEach((obj: fabric.Object) => {
+        console.log("path:created", obj.toObject())
+      });
   });
-
-
-
-
-
-
-  //-----设置鼠标样式-----
-  // const customCursor = document.createElement('div');
-  // customCursor.style.width = '50px';
-  // customCursor.style.height = '50px';
-  // customCursor.style.border = '3px solid #ffffff';
-  // customCursor.style.background = 'rgba(255,255,255,0.6)'
-  // customCursor.style.borderRadius = '50%';
-  // customCursor.style.position = 'absolute';
-  // customCursor.style.pointerEvents = 'none';
-  // customCursor.style.display = 'none';
-
-  // // 设置自定义鼠标样式
-  // fabricCanvasRef.value.upperCanvasEl.style.cursor = 'none';
-  // fabricCanvasRef.value.wrapperEl.appendChild(customCursor);
-
-  // fabricCanvasRef.value.on('mouse:move', (event: any) => {
-  //   fabricCanvasRef.value.upperCanvasEl.style.cursor = 'none';
-  //   const pointer = fabricCanvasRef.value.getPointer(event.e);
-  //   customCursor.style.left = pointer.x - 25 + 'px';
-  //   customCursor.style.top = pointer.y - 25 + 'px';
-  // })
-
-  // fabricCanvasRef.value.on('mouse:out', () => {
-  //   customCursor.style.display = 'none';
-  // });
-
-  // fabricCanvasRef.value.on('mouse:over', () => {
-  //   customCursor.style.display = 'block';
-  // });
-  //-----设置鼠标样式-----
-
-
-
-
 
   // 监听鼠标移动，判断是否在可绘制区域
   fabricCanvas.on('mouse:move', function (e: fabric.IEvent) {
@@ -389,7 +376,7 @@ const setPencilBrush = () => {
 
 // 开启橡皮擦功能
 const openEraser = () => {
-  splitGroup();
+  unGroup();
   setEraserBrush();
 }
 
@@ -405,20 +392,18 @@ const setEraserBrush = () => {
   fabricCanvas.requestRenderAll()
 }
 
-// 打散分组
-const splitGroup = () => {
-  fabricCanvas.setActiveObject(currentGroup);
-  fabricCanvas.getActiveObject().toActiveSelection()
-  fabricCanvas.discardActiveObject();
+// 解组
+const unGroup = () => {
+  if (fabricCanvas.getObjects()[0].isType("group")) {
+    fabricCanvas.setActiveObject(currentGroup);
+    fabricCanvas.getActiveObject().toActiveSelection()
+    fabricCanvas.discardActiveObject();
+  }
 }
 
 // 重新生成组
 const regenerateGroup = () => {
   if (fabricCanvas.getObjects()[0].type !== 'group') {
-    // currentGroup.off('object:scaling');
-    // currentGroup.off('object:scaled');
-    // currentGroup.off('object:moving');
-
     const selection = new fabric.ActiveSelection(fabricCanvas.getObjects(), {
       canvas: fabricCanvas
     });
@@ -428,7 +413,6 @@ const regenerateGroup = () => {
     fabricCanvas.requestRenderAll();
   }
 }
-
 
 // 判断是否可以撤销和前进
 watchEffect(() => {
@@ -468,8 +452,24 @@ const historyStack = (index: number) => {
 // 清除画布
 const clearCanvas = () => {
   if (!fabricCanvas) return;
-  fabricCanvas.clear();
-  isLoadedImgRef.value = false;
+  const objects = fabricCanvas.getObjects();
+  const firstObject = objects[0];
+  if (firstObject.isType("group")) {
+    firstObject.forEachObject((obj: fabric.Object) => {
+      if (obj.isType("path")) {
+        currentGroup.remove(obj);
+        fabricCanvas.remove(obj);
+      }
+    });
+  } else {
+    objects.forEach((obj: fabric.Object) => {
+      if (obj.isType("path")) {
+        fabricCanvas.remove(obj);
+      }
+    });
+  }
+  fabricCanvas.renderAll();
+  isCanClearRef.value = false;
 }
 
 // 退出编辑模式
@@ -485,20 +485,7 @@ const exitEditMode = () => {
 </script>
 
 
-<template>
-  <input type="file" @change="handleFileChange" ref="fileInputRef" />
-  <button @click="openBrush" :disabled="!isLoadedImgRef">局部重绘</button>
-  <button @click="openEraser" :disabled="!isLoadedImgRef">橡皮擦</button>
-  <button @click="exitEditMode">退出编辑模式</button>
 
-  <div class="canvasWrapper">
-    <button @click="historyStack(stateIndexRef + 1)" class="btnForward" :disabled="!canRedoRef">前进</button>
-    <button @click="historyStack(stateIndexRef - 1)" class="btnBack" :disabled="!canUndoRef">后退</button>
-    <button @click="clearCanvas" class="btnClear" :disabled="!isLoadedImgRef">清除</button>
-    <canvas ref="canvasRef" width="800" height="600"></canvas>
-  </div>
-
-</template>
 
 
 <style scoped lang="less">
@@ -509,6 +496,9 @@ const exitEditMode = () => {
 
   canvas {
     border: 1px solid red;
+    background-image: repeating-conic-gradient(rgb(33, 37, 46) 0deg, rgb(33, 37, 46) 25%, rgb(45, 49, 59) 0deg, rgb(45, 49, 59) 50%);
+    background-position: 0px 0px, 0.5rem 0.5rem;
+    background-size: 1rem 1rem;
   }
 
   .btnActive {
