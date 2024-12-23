@@ -6,9 +6,10 @@
   <button @click="exitEditMode">退出编辑模式</button>
 
   <div class="canvasWrapper">
-    <button @click="redoDraw" class="btnForward" :disabled="stateStack.length === 0">前进</button>
-    <button @click="undoDraw" class="btnBack" :disabled="disableUndoRef">后退</button>
+    <button @click="redoDraw" class="btnForward" :disabled="stateStack.length === 0">恢复</button>
+    <button @click="undoDraw" class="btnBack" :disabled="disableUndoRef">撤销</button>
     <button @click="clearCanvas" class="btnClear" :disabled="!isLoadedImgRef || !isCanClearRef">清除</button>
+    <button @click="downloadImg">下载</button>
     <canvas ref="canvasRef" width="800" height="600" class="canvas"></canvas>
   </div>
 
@@ -44,7 +45,7 @@ const isInDrawingAreaRef = ref<boolean>(false);
 const isCanClearRef = ref<boolean>(false);
 
 const disableUndoRef = ref<boolean>(true);
-const disableRedoRef = ref<boolean>(true);
+
 
 
 // 自定义笔刷和橡皮擦的光标样式
@@ -109,11 +110,89 @@ const handleFileChange = (event: Event) => {
     });
   };
   reader.readAsDataURL(file);
-
-
 };
 
 onMounted(() => init());
+
+
+const downloadImg = () => {
+  if (!fabricCanvas) return;
+  // const objects = getAllObjects();
+  // const imgObj = objects.find((obj: fabric.Object) => obj.isType("image"));
+  // const canvasDataUrl = imgObj.toDataURL();
+  // const a = document.createElement('a');
+  // a.href = canvasDataUrl;
+  // a.download = 'canvas.png';
+  // a.click();
+
+
+  const tempCanvas = new fabric.Canvas(document.createElement('canvas'), {
+    enableRetinaScaling: true,
+  });
+  const allObjects = fabricCanvas.getObjects();
+  const firstObject = allObjects[0];
+  let width = 0;
+  let height = 0;
+  let scaleX = 1;
+  let scaleY = 1;
+  let imgObj: fabric.Image | null = null;
+  if (firstObject.isType("group")) {
+    width = firstObject.width;
+    height = firstObject.height;
+    scaleX = firstObject.scaleX;
+    scaleY = firstObject.scaleY;
+    imgObj = firstObject.getObjects().find((obj: fabric.Object) => obj.isType("image"));
+  } else {
+    imgObj = allObjects.find((obj: fabric.Object) => obj.isType("image"));
+    width = imgObj.width;
+    height = imgObj.height;
+    scaleX = imgObj.scaleX;
+    scaleY = imgObj.scaleY;
+  }
+
+
+  if (imgObj) {
+    tempCanvas.setWidth(width);
+    tempCanvas.setHeight(height);
+    console.log("zsl", width, height);
+
+    imgObj.clone((cloneImg: fabric.Image) => {
+      cloneImg.set({
+        left: 0,
+        top: 0,
+        width,
+        height,
+        scaleX,
+        scaleY,
+      });
+      tempCanvas.add(cloneImg);
+      tempCanvas.renderAll();
+
+      const canvasDataUrl = tempCanvas.toDataURL({
+        format: 'png',
+        quality: 1,
+      });
+      const a = document.createElement('a');
+      a.href = canvasDataUrl;
+      a.download = 'canvas.png';
+      a.click();
+
+      tempCanvas.dispose();
+    });
+
+  }
+
+
+}
+
+const getAllObjects = () => {
+  if (!fabricCanvas || fabricCanvas.getObjects().length === 0) return [];
+  const objects = fabricCanvas.getObjects();
+  if (objects[0].isType("group")) {
+    return objects[0].getObjects();
+  }
+  return objects;
+}
 
 const handleMouseUp = () => {
   fabricCanvas.setViewportTransform(fabricCanvas.viewportTransform) // 设置此画布实例的视口转换  
@@ -188,6 +267,11 @@ const init = () => {
     isInDrawingAreaRef.value = isInGroup(e);
   });
 
+
+  // fabricCanvas.on('object:scaling', function (e: fabric.IEvent) {
+  //   const target = e.target;
+  //   console.log("zsl", target.toObject());
+  // });
 
 
 
@@ -273,6 +357,8 @@ const scaleEventListener = () => {
     }
   });
 }
+
+
 
 const isInGroup = (e: fabric.IEvent) => {
   if (!currentGroup) return false;
