@@ -6,8 +6,8 @@
   <button @click="exitEditMode">退出编辑模式</button>
 
   <div class="canvasWrapper">
-    <button @click="historyStack(stateIndexRef + 1)" class="btnForward" :disabled="!canRedoRef">前进</button>
-    <button @click="historyStack(stateIndexRef - 1)" class="btnBack" :disabled="!canUndoRef">后退</button>
+    <button @click="redoDraw" class="btnForward" :disabled="stateStack.length === 0">前进</button>
+    <button @click="undoDraw" class="btnBack" :disabled="disableUndoRef">后退</button>
     <button @click="clearCanvas" class="btnClear" :disabled="!isLoadedImgRef || !isCanClearRef">清除</button>
     <canvas ref="canvasRef" width="800" height="600" class="canvas"></canvas>
   </div>
@@ -17,7 +17,7 @@
 
 <script setup lang="ts">
 import { fabric } from "fabric-with-erasing";
-import { markRaw, onMounted, ref, watchEffect, watch, reactive } from "vue";
+import { markRaw, onMounted, ref, watch, reactive, computed } from "vue";
 import { getBase64SVG, getSvgEncode, isPencilBrush } from "../util";
 // import { mosaicBrush } from "./MaSaiKe";
 
@@ -35,16 +35,16 @@ const canvasRef = ref<HTMLCanvasElement | null>(null);
 
 const isLoadedImgRef = ref<boolean>(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
-const maxSaveStep = 20;
-const stateStack = ref<string[]>([]);
-const canUndoRef = ref<boolean>(false);
-const canRedoRef = ref<boolean>(false);
-const stateIndexRef = ref<number>(-1);
+const maxSaveStep = 2;
+const stateStack = ref<any[]>([])
 let currentGroup: fabric.Group | null = null;
 
 const isDrawingModeRef = ref<boolean>(false);
 const isInDrawingAreaRef = ref<boolean>(false);
 const isCanClearRef = ref<boolean>(false);
+
+const disableUndoRef = ref<boolean>(true);
+const disableRedoRef = ref<boolean>(true);
 
 
 // 自定义笔刷和橡皮擦的光标样式
@@ -59,7 +59,6 @@ const customEraserCursor: CustomCursor = reactive({
   color: "#c6c6c6",
   cursor: "",
 })
-
 
 
 
@@ -147,12 +146,6 @@ const init = () => {
   setFabricControlsStyle();
   scaleEventListener();
 
-  // 保存状态
-  fabricCanvas.on("mouse:up", () => {
-    saveState();
-  });
-
-
 
   // 监听绘制线，绘制好后添加到组，以使拖动组时图片和线一起移动
   fabricCanvas.on('path:created', function (e: fabric.IEvent) {
@@ -164,19 +157,19 @@ const init = () => {
     if (isPencilBrush(path)) {
       // 笔刷path
       isCanClearRef.value = true;
-    } else {
-      console.log("橡皮擦path");
-      // 橡皮擦path
-      // 橡皮擦模式下一定是分组的，每次橡皮擦path更新后，都要检查此时画布是否还有PencilBrush Path,如果没有得Disable清除按钮
-      const findPencilBrush = fabricCanvas.getObjects().find((obj: fabric.Object) => isPencilBrush(obj as fabric.Path));
-      if (!findPencilBrush) {
-        isCanClearRef.value = false;
-      }
+      disableUndoRef.value = false;
+      // 每次有新的path添加，都要重置状态栈
+      stateStack.value = []
     }
+  });
 
-    fabricCanvas.getObjects().forEach((obj: fabric.Object) => {
-        console.log("path:created", obj.toObject())
-      });
+  fabricCanvas.on('erasing:end', function (e: fabric.IEvent) {
+    // 橡皮擦path
+    // 橡皮擦模式下一定是分组的，每次橡皮擦path更新后，都要检查此时画布是否还有PencilBrush Path,如果没有得Disable清除按钮
+    // const findPencilBrush = fabricCanvas.getObjects().find((obj: fabric.Object) => isPencilBrush(obj as fabric.Path));
+    // if (!findPencilBrush) {
+    //   isCanClearRef.value = false;
+    // }
   });
 
   // 监听鼠标移动，判断是否在可绘制区域
@@ -224,6 +217,11 @@ const init = () => {
   //fabricRegisterMouseEvents();
 
 }
+
+
+
+
+
 
 const initFabricCanvas = () => {
   if (!canvasRef.value) return;
@@ -337,12 +335,6 @@ const customCursorStyle = () => {
 
 }
 
-const saveState = () => {
-  stateStack.value.push(JSON.stringify(fabricCanvas.toDatalessJSON()));
-  stateIndexRef.value = stateStack.value.length - 1;
-
-}
-
 // 开启笔刷功能
 const openBrush = () => {
   regenerateGroup()
@@ -414,40 +406,21 @@ const regenerateGroup = () => {
   }
 }
 
-// 判断是否可以撤销和前进
-watchEffect(() => {
-  canUndoRef.value = stateIndexRef.value > 0;
-  canRedoRef.value = stateIndexRef.value < stateStack.value.length - 1;
-})
-
 watch([isInDrawingAreaRef, isDrawingModeRef, () => fabricCanvas], ([isInDrawingArea, isDrawingMode, fabricCanvas]) => {
-
   if (fabricCanvas) {
-
     const canDraw = isDrawingMode;
-
     if (isDrawingMode && !isInDrawingArea) {
       // const points = fabricCanvas.freeDrawingBrush?.decimatePoints();
       // if (points && points.length > 0) {
       //   fabricCanvas.freeDrawingBrush.createPath(points);
       // }
-
     }
     fabricCanvas.isDrawingMode = canDraw;
     // fabricCanvas.requestRenderAll();
-
   }
 })
 
-// 撤销或者前进到指定画布状态
-const historyStack = (index: number) => {
-  if (canUndoRef.value || canRedoRef.value) {
-    fabricCanvas.loadFromJSON(stateStack.value[index], () => {
-      fabricCanvas.renderAll();
-      stateIndexRef.value = index;
-    });
-  }
-}
+
 
 // 清除画布
 const clearCanvas = () => {
@@ -470,6 +443,7 @@ const clearCanvas = () => {
   }
   fabricCanvas.renderAll();
   isCanClearRef.value = false;
+  disableUndoRef.value = true;
 }
 
 // 退出编辑模式
@@ -478,6 +452,50 @@ const exitEditMode = () => {
   regenerateGroup();
   isDrawingModeRef.value = false;
   currentGroup.selectable = true;
+}
+
+
+const undoDraw = () => {
+
+  const allObjects = fabricCanvas.getObjects();
+  if (allObjects.length > 0) {
+    const firstObject = allObjects[0];
+    if (firstObject.isType("group")) {
+      const groupChildren = firstObject.getObjects()
+      if (groupChildren.length > 0) {
+        const lastChild = groupChildren.pop()
+        if (lastChild.isType("path")) {
+          stateStack.value.push(lastChild)
+          firstObject.remove(lastChild)
+          fabricCanvas.remove(lastChild)
+        }
+      }
+    } else {
+      const lastChild = allObjects.pop()
+      if (lastChild.isType("path")) {
+        stateStack.value.push(lastChild)
+        fabricCanvas.remove(lastChild)
+      }
+    }
+    fabricCanvas.renderAll()
+    if (stateStack.value.length >= maxSaveStep) {
+      disableUndoRef.value = true;
+    }
+  }
+}
+
+const redoDraw = () => {
+  if (stateStack.value.length > 0) {
+    const obj = stateStack.value.pop()
+    const allObjects = fabricCanvas.getObjects();
+    const firstObject = allObjects[0];
+    if (firstObject.isType("group")) {
+      firstObject.add(obj)
+    }
+    fabricCanvas.add(obj)
+    fabricCanvas.renderAll()
+    disableUndoRef.value = false;
+  }
 }
 
 
