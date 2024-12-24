@@ -86,6 +86,7 @@ const handleFileChange = (event: Event) => {
       });
 
       const group = new fabric.Group([img]);
+      group.objectCaching = false;
       fabricCanvas.add(markRaw(group));
       currentGroup = group;
       fabricCanvas.setActiveObject(group);
@@ -115,46 +116,106 @@ const handleFileChange = (event: Event) => {
 onMounted(() => init());
 
 
+// const downloadImg = () => {
+//   if (!fabricCanvas) return;
+//   const tempCanvas = new fabric.Canvas(document.createElement('canvas'), {
+//     enableRetinaScaling: true,
+//   });
+//   const allObjects = fabricCanvas.getObjects();
+//   const firstObject = allObjects[0];
+//   let width = 0;
+//   let height = 0;
+//   let scaleX = 1;
+//   let scaleY = 1;
+//   let imgObj: fabric.Image | null = null;
+//   if (firstObject.isType("group")) {
+//     console.log("下载-group");
+//     imgObj = firstObject.getObjects().find((obj: fabric.Object) => obj.isType("image"));
+//     width = imgObj.width;
+//     height = imgObj.height;
+//     scaleX = imgObj.scaleX * firstObject.scaleX;
+//     scaleY = imgObj.scaleY * firstObject.scaleY;
+//   } else {
+//     console.log("下载-非group");
+//     imgObj = allObjects.find((obj: fabric.Object) => obj.isType("image"));
+//     width = imgObj.width;
+//     height = imgObj.height;
+//     scaleX = imgObj.scaleX;
+//     scaleY = imgObj.scaleY;
+//   }
+
+
+//   if (imgObj) {
+//     tempCanvas.setWidth(width * scaleX);
+//     tempCanvas.setHeight(height * scaleY);
+//     console.log("zsl", width, height);
+
+//     imgObj.clone((cloneImg: fabric.Image) => {
+//       cloneImg.set({
+//         left: 0,
+//         top: 0,
+//         width,
+//         height,
+//         scaleX,
+//         scaleY,
+//       });
+//       tempCanvas.add(cloneImg);
+//       tempCanvas.renderAll();
+
+//       const canvasDataUrl = tempCanvas.toDataURL({
+//         format: 'png',
+//         quality: 1,
+//       });
+//       const a = document.createElement('a');
+//       a.href = canvasDataUrl;
+//       a.download = 'canvas.png';
+//       a.click();
+
+//       tempCanvas.dispose();
+//     });
+//   }
+// }
+
 const downloadImg = () => {
   if (!fabricCanvas) return;
-  // const objects = getAllObjects();
-  // const imgObj = objects.find((obj: fabric.Object) => obj.isType("image"));
-  // const canvasDataUrl = imgObj.toDataURL();
-  // const a = document.createElement('a');
-  // a.href = canvasDataUrl;
-  // a.download = 'canvas.png';
-  // a.click();
 
-
-  const tempCanvas = new fabric.Canvas(document.createElement('canvas'), {
+  const tempCanvasElement = document.createElement('canvas');
+  let tempCanvas: fabric.Canvas | null = null;
+  tempCanvas = new fabric.Canvas(tempCanvasElement, {
     enableRetinaScaling: true,
   });
+
+
   const allObjects = fabricCanvas.getObjects();
+  if (allObjects.length === 0) return;
   const firstObject = allObjects[0];
   let width = 0;
   let height = 0;
   let scaleX = 1;
   let scaleY = 1;
   let imgObj: fabric.Image | null = null;
+
   if (firstObject.isType("group")) {
-    width = firstObject.width;
-    height = firstObject.height;
-    scaleX = firstObject.scaleX;
-    scaleY = firstObject.scaleY;
     imgObj = firstObject.getObjects().find((obj: fabric.Object) => obj.isType("image"));
+    if (!imgObj) return;
+    width = imgObj.width;
+    height = imgObj.height;
+    scaleX = imgObj.scaleX * firstObject.scaleX;
+    scaleY = imgObj.scaleY * firstObject.scaleY;
   } else {
     imgObj = allObjects.find((obj: fabric.Object) => obj.isType("image"));
+    if (!imgObj) return;
     width = imgObj.width;
     height = imgObj.height;
     scaleX = imgObj.scaleX;
     scaleY = imgObj.scaleY;
   }
 
-
   if (imgObj) {
-    tempCanvas.setWidth(width);
-    tempCanvas.setHeight(height);
-    console.log("zsl", width, height);
+    tempCanvas.set({
+      width: width * scaleX,
+      height: height * scaleY,
+    })
 
     imgObj.clone((cloneImg: fabric.Image) => {
       cloneImg.set({
@@ -164,26 +225,39 @@ const downloadImg = () => {
         height,
         scaleX,
         scaleY,
+        originX: 'left',
+        originY: 'top'
       });
+
+      tempCanvas.clear();
       tempCanvas.add(cloneImg);
       tempCanvas.renderAll();
 
-      const canvasDataUrl = tempCanvas.toDataURL({
-        format: 'png',
-        quality: 1,
-      });
-      const a = document.createElement('a');
-      a.href = canvasDataUrl;
-      a.download = 'canvas.png';
-      a.click();
-
-      tempCanvas.dispose();
-    });
-
+      try {
+        const dataUrl = tempCanvas.toDataURL({
+          format: 'jpeg',
+          quality: 0.9,
+          multiplier: window.devicePixelRatio || 1,
+          enableRetinaScaling: true,
+        });
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = 'canvas.jpeg';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (error) {
+        console.error('下载图片时出错:', error);
+      } finally {
+        tempCanvas.clear();
+        tempCanvas.getContext().clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+        tempCanvasElement.remove();
+        cloneImg.dispose();
+        tempCanvas = null;
+      }
+    })
   }
-
-
-}
+};
 
 const getAllObjects = () => {
   if (!fabricCanvas || fabricCanvas.getObjects().length === 0) return [];
@@ -268,10 +342,20 @@ const init = () => {
   });
 
 
-  // fabricCanvas.on('object:scaling', function (e: fabric.IEvent) {
-  //   const target = e.target;
-  //   console.log("zsl", target.toObject());
-  // });
+  fabricCanvas.on('object:scaling', function (e: fabric.IEvent) {
+    const target = e.target;
+    // console.log("zsl", target.toObject());
+    target.setCoords();
+    if (target.isType("group")) {
+      target.getObjects().forEach((obj: fabric.Object) => {
+        obj.setCoords();
+        const width = obj.getBoundingRect().width;
+
+        console.log("zsl", width, obj.width * obj.scaleX * target.scaleX);
+      });
+    }
+    fabricCanvas.renderAll();
+  });
 
 
 
@@ -486,6 +570,7 @@ const regenerateGroup = () => {
       canvas: fabricCanvas
     });
     const group = selection.toGroup();
+    group.objectCaching = false;
     currentGroup = group;
     fabricCanvas.discardActiveObject();
     fabricCanvas.requestRenderAll();
