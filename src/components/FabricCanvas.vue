@@ -10,6 +10,7 @@
     <button @click="undoDraw" class="btnBack" :disabled="disableUndoRef">撤销</button>
     <button @click="clearCanvas" class="btnClear" :disabled="!isLoadedImgRef || !isCanClearRef">清除</button>
     <button @click="downloadImg">下载</button>
+    <button @click="handleDownload">下载蒙版</button>
     <canvas ref="canvasRef" width="800" height="600" class="canvas"></canvas>
   </div>
 
@@ -36,7 +37,7 @@ const canvasRef = ref<HTMLCanvasElement | null>(null);
 
 const isLoadedImgRef = ref<boolean>(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
-const maxSaveStep = 2;
+const maxSaveStep = 20;
 const stateStack = ref<any[]>([])
 let currentGroup: fabric.Group | null = null;
 
@@ -45,7 +46,6 @@ const isInDrawingAreaRef = ref<boolean>(false);
 const isCanClearRef = ref<boolean>(false);
 
 const disableUndoRef = ref<boolean>(true);
-
 
 
 // 自定义笔刷和橡皮擦的光标样式
@@ -116,75 +116,16 @@ const handleFileChange = (event: Event) => {
 onMounted(() => init());
 
 
-// const downloadImg = () => {
-//   if (!fabricCanvas) return;
-//   const tempCanvas = new fabric.Canvas(document.createElement('canvas'), {
-//     enableRetinaScaling: true,
-//   });
-//   const allObjects = fabricCanvas.getObjects();
-//   const firstObject = allObjects[0];
-//   let width = 0;
-//   let height = 0;
-//   let scaleX = 1;
-//   let scaleY = 1;
-//   let imgObj: fabric.Image | null = null;
-//   if (firstObject.isType("group")) {
-//     console.log("下载-group");
-//     imgObj = firstObject.getObjects().find((obj: fabric.Object) => obj.isType("image"));
-//     width = imgObj.width;
-//     height = imgObj.height;
-//     scaleX = imgObj.scaleX * firstObject.scaleX;
-//     scaleY = imgObj.scaleY * firstObject.scaleY;
-//   } else {
-//     console.log("下载-非group");
-//     imgObj = allObjects.find((obj: fabric.Object) => obj.isType("image"));
-//     width = imgObj.width;
-//     height = imgObj.height;
-//     scaleX = imgObj.scaleX;
-//     scaleY = imgObj.scaleY;
-//   }
-
-
-//   if (imgObj) {
-//     tempCanvas.setWidth(width * scaleX);
-//     tempCanvas.setHeight(height * scaleY);
-//     console.log("zsl", width, height);
-
-//     imgObj.clone((cloneImg: fabric.Image) => {
-//       cloneImg.set({
-//         left: 0,
-//         top: 0,
-//         width,
-//         height,
-//         scaleX,
-//         scaleY,
-//       });
-//       tempCanvas.add(cloneImg);
-//       tempCanvas.renderAll();
-
-//       const canvasDataUrl = tempCanvas.toDataURL({
-//         format: 'png',
-//         quality: 1,
-//       });
-//       const a = document.createElement('a');
-//       a.href = canvasDataUrl;
-//       a.download = 'canvas.png';
-//       a.click();
-
-//       tempCanvas.dispose();
-//     });
-//   }
-// }
-
 const downloadImg = () => {
   if (!fabricCanvas) return;
 
   const tempCanvasElement = document.createElement('canvas');
   let tempCanvas: fabric.Canvas | null = null;
+  const dpr = window.devicePixelRatio || 1;
+
   tempCanvas = new fabric.Canvas(tempCanvasElement, {
     enableRetinaScaling: true,
   });
-
 
   const allObjects = fabricCanvas.getObjects();
   if (allObjects.length === 0) return;
@@ -212,10 +153,13 @@ const downloadImg = () => {
   }
 
   if (imgObj) {
+    const targetWidth = width * scaleX;
+    const targetHeight = height * scaleY;
+
     tempCanvas.set({
-      width: width * scaleX,
-      height: height * scaleY,
-    })
+      width: targetWidth / dpr,
+      height: targetHeight / dpr,
+    });
 
     imgObj.clone((cloneImg: fabric.Image) => {
       cloneImg.set({
@@ -223,8 +167,8 @@ const downloadImg = () => {
         top: 0,
         width,
         height,
-        scaleX,
-        scaleY,
+        scaleX: scaleX / dpr,
+        scaleY: scaleY / dpr,
         originX: 'left',
         originY: 'top'
       });
@@ -237,7 +181,7 @@ const downloadImg = () => {
         const dataUrl = tempCanvas.toDataURL({
           format: 'jpeg',
           quality: 0.9,
-          multiplier: window.devicePixelRatio || 1,
+          multiplier: dpr,
           enableRetinaScaling: true,
         });
         const link = document.createElement('a');
@@ -255,18 +199,70 @@ const downloadImg = () => {
         cloneImg.dispose();
         tempCanvas = null;
       }
-    })
+    });
   }
 };
 
-const getAllObjects = () => {
-  if (!fabricCanvas || fabricCanvas.getObjects().length === 0) return [];
-  const objects = fabricCanvas.getObjects();
-  if (objects[0].isType("group")) {
-    return objects[0].getObjects();
-  }
-  return objects;
+
+
+const handleDownload = () => {
+  const tempCanvas = document.createElement('canvas')
+  const tempFabricCanvas = new fabric.Canvas(tempCanvas, {
+    fill: '#000',
+  })
+
+  currentGroup.clone((clonedGroup: fabric.Group) => {
+    const img = clonedGroup.getObjects().find((obj: fabric.Object) => obj.isType("image"));
+    if (!img) return;
+    const orgImgWidth = img.width;
+    const orgImgHeight = img.height;
+    const totalScale = clonedGroup.scaleX * img.scaleX;
+    tempCanvas.width = orgImgWidth
+    tempCanvas.height = orgImgHeight
+
+    clonedGroup.remove(img);
+    tempFabricCanvas.remove(img);
+
+    clonedGroup.forEachObject((obj: fabric.Object) => {
+      if (obj.isType("path")) {
+        obj.set({ fill: '#fff', stroke: '#fff' })
+      }
+    })
+
+    clonedGroup.set({
+      left: 0,
+      top: 0,
+      scaleX: 1 / totalScale,
+      scaleY: 1 / totalScale,
+    })
+
+    tempFabricCanvas.add(clonedGroup)
+    tempFabricCanvas.renderAll()
+
+    try {
+      const dataURL = tempFabricCanvas.toDataURL({
+        format: 'jpeg',
+        quality: 1,
+        width: orgImgWidth,
+        height: orgImgHeight
+      })
+
+      const link = document.createElement('a')
+      link.download = 'canvas.jpeg'
+      link.href = dataURL
+      link.click()
+    } catch (error) {
+      console.error('下载图片时出错:', error);
+    } finally {
+      tempFabricCanvas.clear();
+      tempFabricCanvas.getContext().clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+      tempCanvas.remove();
+      clonedGroup.dispose();
+    }
+  })
 }
+
+
 
 const handleMouseUp = () => {
   fabricCanvas.setViewportTransform(fabricCanvas.viewportTransform) // 设置此画布实例的视口转换  
@@ -340,28 +336,6 @@ const init = () => {
     if (!isLoadedImgRef.value) return
     isInDrawingAreaRef.value = isInGroup(e);
   });
-
-
-  fabricCanvas.on('object:scaling', function (e: fabric.IEvent) {
-    const target = e.target;
-    // console.log("zsl", target.toObject());
-    target.setCoords();
-    if (target.isType("group")) {
-      target.getObjects().forEach((obj: fabric.Object) => {
-        obj.setCoords();
-        const width = obj.getBoundingRect().width;
-
-        console.log("zsl", width, obj.width * obj.scaleX * target.scaleX);
-      });
-    }
-    fabricCanvas.renderAll();
-  });
-
-
-
-
-
-
 
 
   // fabricCanvasRef.value.on("mouse:wheel", (opt: any) => {
@@ -684,7 +658,6 @@ const redoDraw = () => {
   position: relative;
 
   canvas {
-    border: 1px solid red;
     background-image: repeating-conic-gradient(rgb(33, 37, 46) 0deg, rgb(33, 37, 46) 25%, rgb(45, 49, 59) 0deg, rgb(45, 49, 59) 50%);
     background-position: 0px 0px, 0.5rem 0.5rem;
     background-size: 1rem 1rem;
