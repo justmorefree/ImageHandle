@@ -5,10 +5,10 @@
             <button @click="openBrush">局部绘制</button>
             <button @click="openEraser">橡皮擦</button>
             <button @click="downloadMask">下载</button>
-            <button @click="design">Design</button>
+            <button @click="exitDraw">退出绘制</button>
         </div>
-        <div class="box-content">
-            <canvas id="canvas" width="800" height="600"></canvas>
+        <div class="box-content" ref="boxContentRef">
+            <canvas id="canvas" width="800" height="600" ref="canvasDomRef"></canvas>
         </div>
 
 
@@ -17,41 +17,76 @@
 
 <script setup lang="ts">
 import { fabric } from "fabric-with-erasing";
-import { onMounted } from "vue";
+import { onMounted, ref } from "vue";
+import { reactive } from "vue";
+import { getSvgEncode, getBase64SVG } from "../util";
+
+
+export interface CustomCursor {
+    size: number;
+    color: string;
+    cursor: string;
+}
+
+// 自定义笔刷和橡皮擦的光标样式
+const customBrushCursor: CustomCursor = reactive({
+    size: 20,
+    color: "red",
+    cursor: "",
+})
+
+const customEraserCursor: CustomCursor = reactive({
+    size: 20,
+    color: "#c6c6c6",
+    cursor: "",
+})
+
 
 let fabricCanvas: fabric.Canvas | null = null;
 let myImg: fabric.Image | null = null;
+const canvasDomRef = ref<HTMLCanvasElement | null>(null);
+const boxContentRef = ref<HTMLDivElement | null>(null);
 
 // 图片的宽度是否大于高度
 let imgIsHorizontal = false;
 onMounted(() => {
-    fabricCanvas = new fabric.Canvas('canvas', {
-        width: 800,
-        height: 600,
-    });
-
-    fabricCanvas.on('object:added', (e) => {
-        console.log('object:added', e.target.toObject());
-    });
-    fabricCanvas.on('object:modified', (e) => {
-        console.log('object:modified', e.target.toObject());
-    });
-
-
-    fabricCanvas.on('object:scal', (e) => {
-        console.log('object:scaled', e.target.toObject());
-    });
+    initFabricCanvas()
+    initCursorStyle()
 })
 
-const design = () => {
-    if (!fabricCanvas) return;
+const initFabricCanvas = () => {
+    if (!canvasDomRef.value) return;
+    fabricCanvas = new fabric.Canvas(canvasDomRef.value, {
+        width: canvasDomRef.value.width,
+        height: canvasDomRef.value.height,
+    });
+}
+
+const initCursorStyle = () => {
+    customBrushCursor.cursor = getSvgEncode(customBrushCursor)
+    customEraserCursor.cursor = getSvgEncode(customEraserCursor)
+}
+
+const exitDraw = () => {
+    if (!fabricCanvas || !boxContentRef.value) return;
+    const objects = fabricCanvas.getObjects();
+    objects.forEach((obj: fabric.Object) => {
+        if (obj.isType("path")) fabricCanvas.remove(obj)
+    })
+    fabricCanvas.renderAll()
+    fabricCanvas.isDrawingMode = false;
+    myImg.set({ selectable: true })
+    fabricCanvas.setWidth(boxContentRef.value.clientWidth)
+    fabricCanvas.setHeight(boxContentRef.value.clientHeight)
+    fabricCanvas.centerObject(myImg)
 }
 
 const openBrush = () => {
     if (!fabricCanvas) return;
+    fabricCanvas.freeDrawingCursor = getBase64SVG(customBrushCursor)
     const pencilBrush = new fabric.PencilBrush(fabricCanvas);
-    pencilBrush.width = 20;
-    pencilBrush.color = "#ff00ff";
+    pencilBrush.width = customBrushCursor.size;
+    pencilBrush.color = customBrushCursor.color;
     fabricCanvas.freeDrawingBrush = pencilBrush;
     fabricCanvas.isDrawingMode = true;
     fabricCanvas.renderAll()
@@ -85,9 +120,10 @@ const openBrush = () => {
 
 const openEraser = () => {
     if (!fabricCanvas) return;
+    fabricCanvas.freeDrawingCursor = getBase64SVG(customEraserCursor)
     const eraserBrush = new fabric.EraserBrush(fabricCanvas);
-    eraserBrush.width = 20;
-    eraserBrush.color = "red";
+    eraserBrush.width = customEraserCursor.size;
+    eraserBrush.color = customEraserCursor.color;
     fabricCanvas.freeDrawingBrush = eraserBrush;
     fabricCanvas.isDrawingMode = true;
     fabricCanvas.requestRenderAll()
@@ -127,15 +163,13 @@ const handleFileChange = (event: Event) => {
 const downloadMask = () => {
     if (!fabricCanvas) return;
     fabricCanvas.clone((clonedCanvas: fabric.Canvas) => {
-
         const img = clonedCanvas.getObjects().find((obj: fabric.Object) => obj.isType("image"));
         if (!img) return;
+        clonedCanvas.set({ fill: '#000' })
         clonedCanvas.remove(img);
         clonedCanvas.setZoom(1 / img.scaleX)
         clonedCanvas.forEachObject((obj: fabric.Object) => {
-            if (obj.isType("path")) {
-                obj.set({ fill: '#fff', stroke: '#fff' })
-            }
+            if (obj.isType("path")) obj.set({ stroke: '#fff' })
         })
 
         try {
@@ -162,7 +196,7 @@ const downloadMask = () => {
 .box {
     width: 800px;
     height: 652px;
-    border: 1px solid green;
+
 
     .box-header {
         display: flex;
@@ -170,9 +204,12 @@ const downloadMask = () => {
         height: 50px;
     }
 
-    #canvas {}
+    #canvas {
+        border: 1px solid red;
+    }
 
     .box-content {
+        border: 1px solid green;
         height: 600px;
         width: 800px;
         display: flex;
