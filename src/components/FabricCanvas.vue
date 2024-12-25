@@ -5,13 +5,13 @@
   <button @click="openEraser" :disabled="!isLoadedImgRef">橡皮擦</button>
   <button @click="exitEditMode">退出编辑模式</button>
 
-  <div class="canvasWrapper">
+  <div class="canvasWrapper" ref="canvasWrapperRef">
     <button @click="redoDraw" class="btnForward" :disabled="stateStack.length === 0">恢复</button>
     <button @click="undoDraw" class="btnBack" :disabled="disableUndoRef">撤销</button>
     <button @click="clearCanvas" class="btnClear" :disabled="!isLoadedImgRef || !isCanClearRef">清除</button>
     <button @click="downloadImg">下载</button>
-    <button @click="handleDownload">下载蒙版</button>
-    <canvas ref="canvasRef" width="800" height="600" class="canvas"></canvas>
+    <button @click="downloadMask">下载蒙版</button>
+    <canvas ref="canvasDomRef" width="800" height="600" class="canvas"></canvas>
   </div>
 
 </template>
@@ -32,7 +32,8 @@ export interface CustomCursor {
 }
 
 let fabricCanvas: fabric.Canvas | null = null;
-const canvasRef = ref<HTMLCanvasElement | null>(null);
+const canvasDomRef = ref<HTMLCanvasElement | null>(null);
+const canvasWrapperRef = ref<HTMLDivElement | null>(null);
 
 
 const isLoadedImgRef = ref<boolean>(false);
@@ -85,11 +86,31 @@ const handleFileChange = (event: Event) => {
         erasable: false
       });
 
+      const clipRect = new fabric.Rect({
+        left: (canvasWidth - img.width! * scale) / 2,
+        top: (canvasHeight - img.height! * scale) / 2,
+        fill: 'rgba(255,0,0,1)',
+        width: 800,
+        height: 241,
+        selectable: false,
+        absolutePositioning: true,
+        evented: false
+      })
+      fabricCanvas.add(clipRect)
+      fabricCanvas.clipPath = clipRect;
+      // fabricCanvas.renderAll()
+
+
+
       const group = new fabric.Group([img]);
-      group.objectCaching = false;
       fabricCanvas.add(markRaw(group));
       currentGroup = group;
       fabricCanvas.setActiveObject(group);
+
+
+
+
+
 
       isLoadedImgRef.value = true;
       fileInputRef.value!.value = "";
@@ -205,7 +226,7 @@ const downloadImg = () => {
 
 
 
-const handleDownload = () => {
+const downloadMask = () => {
   const tempCanvas = document.createElement('canvas')
   const tempFabricCanvas = new fabric.Canvas(tempCanvas, {
     fill: '#000',
@@ -295,13 +316,15 @@ const init = () => {
   setFabricControlsStyle();
   scaleEventListener();
 
+  if (fabricCanvas === null) return;
 
   // 监听绘制线，绘制好后添加到组，以使拖动组时图片和线一起移动
   fabricCanvas.on('path:created', function (e: fabric.IEvent) {
     const path = e.path;
     fabricCanvas.remove(path);
-    currentGroup.addWithUpdate(path);
-    fabricCanvas.renderAll();
+    if (isPencilBrush(path)) {
+      currentGroup.addWithUpdate(path)
+    }
 
     if (isPencilBrush(path)) {
       // 笔刷path
@@ -310,7 +333,19 @@ const init = () => {
       // 每次有新的path添加，都要重置状态栈
       stateStack.value = []
     }
+    console.log("path-created", fabricCanvas.getObjects()[0].toObject());
   });
+
+
+
+
+  currentGroup?.on('object:scaling', function (e: fabric.IEvent) {
+    console.log("group尺寸变了", e.target.toObject());
+  })
+
+  fabricCanvas.on('object:added', function (e: fabric.IEvent) {
+    console.log("object-added", fabricCanvas.getObjects()[0].toObject());
+  })
 
   fabricCanvas.on('erasing:end', function (e: fabric.IEvent) {
     // 橡皮擦path
@@ -365,17 +400,45 @@ const init = () => {
 
 
 
+// 判断路径是否完全在组外
+function isPathInGroup(path: fabric.Path, rect: fabric.Group) {
+  // 获取 Path 的外接矩形坐标
+  const pathCoords = path.aCoords;
+  const allPoints: fabric.Point[] = Object.values(pathCoords);
+
+  const rectLeft = rect.left;
+  const rectTop = rect.top;
+  const rectRight = rect.left + rect.width;
+  const rectBottom = rect.top + rect.height;
+
+  for (let point of allPoints) {
+    const { x, y } = point;
+    if (x >= rectLeft && x <= rectRight && y >= rectTop && y <= rectBottom) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
+
+
+
+
+
 const initFabricCanvas = () => {
-  if (!canvasRef.value) return;
-  fabricCanvas = new fabric.Canvas(canvasRef.value, {
-    width: canvasRef.value.width,
-    height: canvasRef.value.height,
+  if (!canvasDomRef.value) return;
+  fabricCanvas = new fabric.Canvas(canvasDomRef.value, {
+    width: canvasDomRef.value.width,
+    height: canvasDomRef.value.height,
     isDrawingMode: false,
     selection: false,
     preserveObjectStacking: true, //对象被激活时，不改变对象的堆叠顺序
     controlsAboveOverlay: true,
   });
 }
+
+
 
 const initCursorStyle = () => {
   customBrushCursor.cursor = getSvgEncode(customBrushCursor)
@@ -386,6 +449,7 @@ const initCursorStyle = () => {
 
 
 const scaleEventListener = () => {
+  if (!fabricCanvas) return;
   // 设置对象缩放时，保持对象的宽高比
   fabricCanvas.on("object:scaling", (opt: any) => {
     console.log("object:scaling");
@@ -507,7 +571,6 @@ const setPencilBrush = () => {
   // currentGroup.selectable = false;
   // fabricCanvas.requestRenderAll()
 }
-
 
 
 // 开启橡皮擦功能

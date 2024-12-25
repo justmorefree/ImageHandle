@@ -1,60 +1,47 @@
 <template>
     <div>
+        <button @click="cropRect">crop</button>
         <canvas width="800" height="600" id="canvas" ref="canvasEl"></canvas>
+
     </div>
-    <button @click="updateConfig">change</button>
-    <button @click="clear" style="margin-left: 30px;">clear</button>
+
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { fabric } from 'fabric-with-erasing'
 import { ref, reactive, onMounted } from 'vue'
-const canvasEl = ref(null)
+let fabricCanvas: fabric.Canvas | null = null
 
 defineOptions({
     name: 'Demo'
 })
 
-const state = reactive({
-    canvas: null,
-    cursor: '',
-    size: 10,
-    color: '#000'
-})
+const cropRect = () => {
+    const rect = fabricCanvas?.getObjects()[0]
+    if (rect) {
+        rect.set({
+            cropX: 50,
+        })
+        fabricCanvas?.clear()
+        fabricCanvas?.add(rect)
+        fabricCanvas?.renderAll()
+    }
+}
+
 onMounted(() => {
-    // 初始化canvas
-    state.canvas = new fabric.Canvas('canvas', {
+    fabricCanvas = new fabric.Canvas('canvas', {
         isDrawingMode: true,
     })
-    // 更新画布设置
-    updateConfig()
+    const rect = new fabric.Rect({
+        width: 100,
+        height: 100,
+        fill: 'red',
+    })
+    fabricCanvas.add(rect)
+    fabricCanvas.renderAll()
 })
 
-function updateConfig() {
-    state.size = state.size + 10
-    state.cursor = encodeURIComponent(`
-        <svg
-          height="${state.size}"
-          width="${state.size}"
-          fill="#c6c6c6"
-          viewBox="0 0 ${state.size * 2} ${state.size * 2}"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <circle
-            cx="50%"
-            cy="50%"
-            r="${state.size}" 
-            opacity="0.5"
-          />
-        </svg>
-      `)
-    state.canvas.freeDrawingCursor = `url('data:image/svg+xml;charset=utf-8,${state.cursor}') ${state.size / 2} ${state.size / 2}, crosshair`
-    state.canvas.freeDrawingBrush = new fabric.PencilBrush(state.canvas)
-    state.canvas.freeDrawingBrush.width = state.size;
-}
-function clear() {
-    state.canvas.clear()
-}
+
 </script>
 
 <style>
@@ -64,5 +51,8 @@ function clear() {
     text-align: center;
     color: #2c3e50;
     margin-top: 60px;
+}
+#canvas {
+    border: 1px solid red;
 }
 </style>
